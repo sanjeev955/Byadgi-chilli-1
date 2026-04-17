@@ -6,12 +6,14 @@ from PIL import Image
 import io
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 import base64
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-MODEL_PATH = '/chilli_model_90.h5'
-print(f"Loading model from {MODEL_PATH}...")
+
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "chilli_model_90.h5")
 try:
     model = tf.keras.models.load_model(MODEL_PATH)
     print("Model loaded successfully!")
