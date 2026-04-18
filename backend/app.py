@@ -18,7 +18,7 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "chilli_model_90.h5")
 print(f"Loading model from {MODEL_PATH}...")
 
 try:
-    model = tf.keras.models.load_model(MODEL_PATH)
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
     print("✅ Model loaded successfully!")
 
     # 🔥 Warmup (important for first request speed)
