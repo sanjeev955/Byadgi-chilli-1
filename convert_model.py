@@ -11,7 +11,7 @@ from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 app = Flask(__name__)
 CORS(app)
 
-MODEL_PATH = "final_model.h5"
+MODEL_PATH = "chilli_model_90.h5"
 
 # Load once
 model = tf.keras.models.load_model(MODEL_PATH, compile=False)
