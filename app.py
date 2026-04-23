@@ -38,6 +38,9 @@ def predict():
 
         file = request.files['image']
 
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+
         image = Image.open(io.BytesIO(file.read())).convert('RGB')
         image_array = np.array(image)
 
@@ -45,7 +48,6 @@ def predict():
         input_tensor = np.expand_dims(resized, axis=0)
         input_tensor = preprocess_input(input_tensor)
 
-        # ✅ SIMPLE PREDICT (NO ERROR)
         predictions = model.predict(input_tensor)[0]
 
         return jsonify({
@@ -54,9 +56,5 @@ def predict():
         })
 
     except Exception as e:
+        print("🔥 ERROR:", e)
         return jsonify({'error': str(e)}), 500
-
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
