@@ -1,120 +1,160 @@
-import io
-import logging
 import os
-import threading
-
-import cv2
 import numpy as np
-from flask import Flask, jsonify, render_template_string, request
-from flask_cors import CORS
+import cv2
+import io
 from PIL import Image
+from flask import Flask, request, jsonify, render_template_string
+from flask_cors import CORS
 
-# ==========================
-# CONFIG
-# ==========================
-MODEL_PATH = 'model_fixed'
-CLASS_NAMES = ['DHQ', 'DLQ', 'KHQ', 'KLQ']
-ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
+# ⚠️ Must be set before importing tensorflow
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
 
-# ==========================
-# APP SETUP
-# ==========================
 app = Flask(__name__)
 CORS(app)
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# ✅ Use your converted SavedModel folder
+MODEL_PATH = "model_fixed"
 
-# ==========================
-# MODEL (LAZY LOAD)
-# ==========================
+# Lazy-loaded globals
 model = None
 preprocess_input = None
-_model_lock = threading.Lock()
 
 def load_model_once():
     global model, preprocess_input
 
     if model is None:
-        with _model_lock:
-            if model is None:
-                logger.info("Loading model...")
+        print("Loading model...")
 
-                import tensorflow as tf
-                from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as pp
+        import tensorflow as tf
+        from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as pp
 
-                model = tf.keras.models.load_model(MODEL_PATH)
-                preprocess_input = pp
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        preprocess_input = pp
 
-                logger.info("Model loaded successfully!")
+        print("Model loaded successfully!")
 
-# ==========================
-# FEATURE EXTRACTION
-# ==========================
-def extract_features(image_array):
-    img = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-    img = cv2.resize(img, (300, 300))
+# Class labels
+class_names = ['DHQ', 'DLQ', 'KHQ', 'KLQ']
 
+
+# =========================
+# 🎨 COLOR
+# =========================
+def get_color_hsv(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     hue = hsv[:, :, 0].mean()
 
     if hue < 10:
-        color = "Deep Red"
+        return "Deep Red"
     elif hue < 20:
-        color = "Red"
+        return "Red"
     elif hue < 30:
-        color = "Orange Red"
+        return "Orange Red"
     else:
-        color = "Dull Color"
+        return "Dull Color"
 
+
+# =========================
+# 📏 SIZE
+# =========================
+def get_size(img):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    lower_red1 = np.array([0, 70, 50])
+    upper_red1 = np.array([10, 255, 255])
+
+    lower_red2 = np.array([160, 70, 50])
+    upper_red2 = np.array([179, 255, 255])
+
+    mask = cv2.inRange(hsv, lower_red1, upper_red1) + \
+           cv2.inRange(hsv, lower_red2, upper_red2)
+
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if not contours:
+        return "Unknown"
+
+    c = max(contours, key=cv2.contourArea)
+    perimeter = cv2.arcLength(c, True)
+
+    img_h, img_w = img.shape[:2]
+    norm_length = perimeter / (img_h + img_w)
+
+    if norm_length < 0.25:
+        return "Small"
+    elif norm_length < 0.50:
+        return "Medium"
+    else:
+        return "Large"
+
+
+# =========================
+# 🌊 WRINKLE
+# =========================
+def get_wrinkle(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    wrinkle_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+    score = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-    if wrinkle_score > 150:
-        wrinkle = "High"
-    elif wrinkle_score > 80:
-        wrinkle = "Medium"
+    if score > 150:
+        return "High"
+    elif score > 80:
+        return "Medium"
     else:
-        wrinkle = "Low"
+        return "Low"
+
+
+# =========================
+# FEATURE EXTRACTION
+# =========================
+def extract_features_from_array(image_array):
+    img = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+    img = cv2.resize(img, (300, 300))
 
     return {
-        "color": color,
-        "wrinkle": wrinkle
+        "color": get_color_hsv(img),
+        "size": get_size(img),
+        "wrinkle": get_wrinkle(img)
     }
 
-# ==========================
-# ROUTES
-# ==========================
+
+# =========================
+# HEALTH CHECK
+# =========================
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok'})
+    return "OK"
 
+
+# =========================
+# HOME
+# =========================
 @app.route('/')
 def home():
     return render_template_string("""
-    <h1>Chilli Quality Classifier</h1>
+    <h1>🌶️ Chilli Quality Classifier</h1>
     <form action="/predict" method="post" enctype="multipart/form-data">
         <input type="file" name="image" required>
         <input type="submit" value="Classify">
     </form>
     """)
 
+
+# =========================
+# PREDICT
+# =========================
 @app.route('/predict', methods=['POST'])
 def predict():
-    # ✅ Load model only when needed
-    load_model_once()
-
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image file'}), 400
-
-    file = request.files['image']
-
-    # Validate extension
-    ext = file.filename.rsplit('.', 1)[-1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        return jsonify({'error': 'Invalid file type'}), 400
-
     try:
+        load_model_once()
+
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file'}), 400
+
+        file = request.files['image']
+
         image = Image.open(io.BytesIO(file.read())).convert('RGB')
         image_array = np.array(image)
 
@@ -122,25 +162,23 @@ def predict():
         input_tensor = np.expand_dims(resized, axis=0)
         input_tensor = preprocess_input(input_tensor)
 
-        predictions = model.predict(input_tensor)[0]
-
-        predicted_class = CLASS_NAMES[np.argmax(predictions)]
-        confidence = float(np.max(predictions))
+        # ✅ FINAL FIX: SavedModel inference (NO .predict())
+        predictions = model(input_tensor, training=False)[0].numpy()
 
         return jsonify({
-            'predicted_class': predicted_class,
-            'confidence': round(confidence, 4),
-            'features': extract_features(image_array)
+            'predicted_class': class_names[np.argmax(predictions)],
+            'confidence': float(np.max(predictions)),
+            'features': extract_features_from_array(image_array)
         })
 
     except Exception as e:
-        logger.error(f"Prediction failed: {e}", exc_info=True)
-        return jsonify({'error': 'Prediction failed'}), 500
+        print("🔥 ERROR:", str(e))
+        return jsonify({'error': str(e)}), 500
 
 
-# ==========================
-# ENTRY POINT (LOCAL ONLY)
-# ==========================
+# =========================
+# RUN (LOCAL ONLY)
+# =========================
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
