@@ -5,6 +5,7 @@ import io
 from PIL import Image
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
+import tensorflow as tf
 
 # ⚠️ Must be set before importing tensorflow
 os.environ["TF_USE_LEGACY_KERAS"] = "1"
@@ -28,11 +29,10 @@ def load_model_once():
         import tensorflow as tf
         from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as pp
 
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        model = tf.saved_model.load(MODEL_PATH)   # ✅ FIXED
         preprocess_input = pp
 
         print("Model loaded successfully!")
-
 # Class labels
 class_names = ['DHQ', 'DLQ', 'KHQ', 'KLQ']
 
@@ -150,23 +150,27 @@ def predict():
     try:
         load_model_once()
 
-        import tensorflow as tf
-
         if 'image' not in request.files:
             return jsonify({'error': 'No image file'}), 400
 
         file = request.files['image']
 
+        # Load image
         image = Image.open(io.BytesIO(file.read())).convert('RGB')
         image_array = np.array(image)
 
+        # Resize
         resized = cv2.resize(image_array, (224, 224))
+
+        # Prepare input
         input_tensor = np.expand_dims(resized, axis=0)
         input_tensor = preprocess_input(input_tensor)
+        input_tensor = input_tensor.astype(np.float16)   # ✅ FIX (VERY IMPORTANT)
 
-        # ✅ FINAL FIX (for _UserObject model)
+        # 🔥 Run SavedModel inference
         infer = model.signatures["serving_default"]
         output = infer(tf.constant(input_tensor))
+
         predictions = list(output.values())[0].numpy()[0]
 
         return jsonify({

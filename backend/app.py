@@ -5,6 +5,7 @@ import io
 from PIL import Image
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
+import tensorflow as tf
 
 # ⚠️ IMPORTANT: must be before tensorflow import
 os.environ["TF_USE_LEGACY_KERAS"] = "1"
@@ -28,7 +29,7 @@ def load_model_once():
         import tensorflow as tf
         from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as pp
 
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        model = tf.saved_model.load(MODEL_PATH)   # ✅ FIXED
         preprocess_input = pp
 
         print("Model loaded successfully!")
@@ -155,15 +156,23 @@ def predict():
 
         file = request.files['image']
 
+        # Load image
         image = Image.open(io.BytesIO(file.read())).convert('RGB')
         image_array = np.array(image)
 
+        # Resize
         resized = cv2.resize(image_array, (224, 224))
-        input_array = np.expand_dims(resized, axis=0)
-        input_array = preprocess_input(input_array)
 
-        # ✅ FIX HERE
-        predictions = model(input_array, training=False)[0].numpy()
+        # Prepare input
+        input_tensor = np.expand_dims(resized, axis=0)
+        input_tensor = preprocess_input(input_tensor)
+        input_tensor = input_tensor.astype(np.float16)   # ✅ FIX (VERY IMPORTANT)
+
+        # 🔥 Run SavedModel inference
+        infer = model.signatures["serving_default"]
+        output = infer(tf.constant(input_tensor))
+
+        predictions = list(output.values())[0].numpy()[0]
 
         return jsonify({
             'predicted_class': class_names[np.argmax(predictions)],
@@ -174,4 +183,3 @@ def predict():
     except Exception as e:
         print("🔥 ERROR:", str(e))
         return jsonify({'error': str(e)}), 500
-    
