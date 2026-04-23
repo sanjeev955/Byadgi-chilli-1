@@ -11,7 +11,7 @@ const steps = [
   },
   {
     step: 2,
-    title: "AI analyzes the image",
+    title: "Model analyzes the image",
     description:
       "Our machine learning model examines color, wrinkles, and size characteristics",
     icon: Cpu,
@@ -20,7 +20,7 @@ const steps = [
     step: 3,
     title: "System predicts quality grade",
     description:
-      "Get instant results with quality grade (A1, A2, B1, B2) and detailed metrics",
+      "Get instant results with quality grade (DLQ , DHQ , KLQ , KHQ) and detailed metrics",
     icon: BarChart3,
   },
 ]
