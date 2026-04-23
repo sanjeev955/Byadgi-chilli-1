@@ -11,14 +11,16 @@ app = Flask(__name__)
 CORS(app)
 
 MODEL_PATH = 'chilli_model_90.h5'
-print(f"Loading model from {MODEL_PATH}...")
 
-try:
-    model = tf.keras.models.load_model(MODEL_PATH)
-    print("Model loaded successfully!")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    raise
+# ✅ FIX: Lazy loading model
+model = None
+
+def load_model_once():
+    global model
+    if model is None:
+        print("Loading model...")
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        print("Model loaded successfully!")
 
 # Class labels
 class_names = ['DHQ', 'DLQ', 'KHQ', 'KLQ']
@@ -42,58 +44,48 @@ def get_color_hsv(img):
 
 
 # =========================
-# 📏 SIZE (Small/Medium/Large)
+# 📏 SIZE
 # =========================
 def get_size(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    # Red mask
     lower_red1 = np.array([0, 70, 50])
     upper_red1 = np.array([10, 255, 255])
 
     lower_red2 = np.array([160, 70, 50])
     upper_red2 = np.array([179, 255, 255])
 
-    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    mask = cv2.inRange(hsv, lower_red1, upper_red1) + \
+           cv2.inRange(hsv, lower_red2, upper_red2)
 
-    mask = mask1 + mask2
-
-    # Clean mask
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    contours, _ = cv2.findContours(
-        mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     if not contours:
         return "Unknown"
 
     c = max(contours, key=cv2.contourArea)
-
-    # 🔥 KEY: Use arc length (real curve length)
     perimeter = cv2.arcLength(c, True)
 
-    # Normalize
     img_h, img_w = img.shape[:2]
     norm_length = perimeter / (img_h + img_w)
 
-    # 🔧 Tune these based on your images
     if norm_length < 0.25:
         return "Small"
     elif norm_length < 0.50:
         return "Medium"
     else:
         return "Large"
-    
+
+
 # =========================
-# 🌊 WRINKLE (Texture)
+# 🌊 WRINKLE
 # =========================
 def get_wrinkle(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    lap = cv2.Laplacian(gray, cv2.CV_64F)
-    score = lap.var()
+    score = cv2.Laplacian(gray, cv2.CV_64F).var()
 
     if score > 150:
         return "High"
@@ -104,10 +96,9 @@ def get_wrinkle(img):
 
 
 # =========================
-# 🔥 MAIN FEATURE FUNCTION
+# FEATURE EXTRACTION
 # =========================
 def extract_features_from_array(image_array):
-    # Convert RGB → BGR (important for OpenCV)
     img = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
     img = cv2.resize(img, (300, 300))
 
@@ -119,70 +110,43 @@ def extract_features_from_array(image_array):
 
 
 # =========================
-# 🏠 HOME ROUTE
+# HOME
 # =========================
 @app.route('/')
 def home():
-    return render_template_string('''
-<!DOCTYPE html>
-<html>
-<head><title>Chilli Classifier</title></head>
-<body>
+    return render_template_string("""
     <h1>Chilli Quality Classifier</h1>
     <form action="/predict" method="post" enctype="multipart/form-data">
-        <input type="file" name="image" accept="image/*" required>
+        <input type="file" name="image" required>
         <input type="submit" value="Classify">
     </form>
-</body>
-</html>
-    ''')
+    """)
 
 
 # =========================
-# 🚀 PREDICT ROUTE
+# PREDICT
 # =========================
 @app.route('/predict', methods=['POST'])
 def predict():
+    load_model_once()  # ✅ IMPORTANT
+
     if 'image' not in request.files:
         return jsonify({'error': 'No image file'}), 400
 
     file = request.files['image']
 
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-
-    # Load image
     image = Image.open(io.BytesIO(file.read())).convert('RGB')
-
-    # Convert to array
     image_array = np.array(image)
 
-    # ===== MODEL INPUT =====
     resized = cv2.resize(image_array, (224, 224))
     input_array = np.expand_dims(resized, axis=0)
     input_array = preprocess_input(input_array)
 
-    # ===== PREDICTION =====
     predictions = model.predict(input_array)[0]
-    predicted_class = class_names[np.argmax(predictions)]
-    confidence = float(np.max(predictions))
-
-    # ===== FEATURE EXTRACTION (NEW) =====
-    features = extract_features_from_array(image_array)
 
     return jsonify({
-        'predicted_class': predicted_class,
-        'confidence': confidence,
-        'all_predictions': {
-            class_names[i]: float(predictions[i])
-            for i in range(len(predictions))
-        },
-        'features': features
+        'predicted_class': class_names[np.argmax(predictions)],
+        'confidence': float(np.max(predictions)),
+        'features': extract_features_from_array(image_array)
     })
 
-
-# =========================
-# ▶ RUN
-# =========================
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
