@@ -1,33 +1,33 @@
-import os
-os.environ["TF_USE_LEGACY_KERAS"] = "1"   # ✅ FIX compatibility
-
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 import tensorflow as tf
 import numpy as np
 from PIL import Image
 import io
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 import cv2
 
 app = Flask(__name__)
 CORS(app)
 
-MODEL_PATH = 'chilli_model_90.h5'
+MODEL_PATH = 'model_fixed'
 
-# ✅ Lazy loading
+# Lazy load model
 model = None
+preprocess_input = None
 
 def load_model_once():
-    global model
+    global model, preprocess_input
     if model is None:
         print("Loading model...")
-        model = tf.keras.models.load_model(
-            MODEL_PATH,
-            compile=False,
-            safe_mode=False   # ✅ VERY IMPORTANT
-        )
+
+        # Import inside to avoid startup delay
+        from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as pp
+
+        model = tf.keras.models.load_model(MODEL_PATH)
+        preprocess_input = pp
+
         print("Model loaded successfully!")
+
 
 # Class labels
 class_names = ['DHQ', 'DLQ', 'KHQ', 'KLQ']
@@ -117,7 +117,7 @@ def extract_features_from_array(image_array):
 
 
 # =========================
-# HOME
+# HOME ROUTE
 # =========================
 @app.route('/')
 def home():
@@ -131,11 +131,11 @@ def home():
 
 
 # =========================
-# PREDICT
+# PREDICT ROUTE
 # =========================
 @app.route('/predict', methods=['POST'])
 def predict():
-    load_model_once()   # ✅ LOAD MODEL HERE
+    load_model_once()
 
     if 'image' not in request.files:
         return jsonify({'error': 'No image file'}), 400
@@ -145,6 +145,7 @@ def predict():
     image = Image.open(io.BytesIO(file.read())).convert('RGB')
     image_array = np.array(image)
 
+    # Model input
     resized = cv2.resize(image_array, (224, 224))
     input_array = np.expand_dims(resized, axis=0)
     input_array = preprocess_input(input_array)
@@ -156,4 +157,5 @@ def predict():
         'confidence': float(np.max(predictions)),
         'features': extract_features_from_array(image_array)
     })
+
 
