@@ -147,32 +147,33 @@ def home():
 # =========================
 @app.route('/predict', methods=['POST'])
 def predict():
-    load_model_once()
+    try:
+        load_model_once()
 
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image file'}), 400
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file'}), 400
 
-    file = request.files['image']
+        file = request.files['image']
 
-    image = Image.open(io.BytesIO(file.read())).convert('RGB')
-    image_array = np.array(image)
+        image = Image.open(io.BytesIO(file.read())).convert('RGB')
+        image_array = np.array(image)
 
-    resized = cv2.resize(image_array, (224, 224))
-    input_array = np.expand_dims(resized, axis=0)
-    input_array = preprocess_input(input_array)
+        resized = cv2.resize(image_array, (224, 224))
+        input_array = np.expand_dims(resized, axis=0)
+        input_array = preprocess_input(input_array)
 
-    predictions = model.predict(input_array)[0]
+        print("INPUT SHAPE:", input_array.shape)
 
-    return jsonify({
-        'predicted_class': class_names[np.argmax(predictions)],
-        'confidence': float(np.max(predictions)),
-        'features': extract_features_from_array(image_array)
-    })
+        predictions = model.predict(input_array)[0]
 
+        print("PREDICTIONS:", predictions)
 
-# =========================
-# RUN (FOR LOCAL ONLY)
-# =========================
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+        return jsonify({
+            'predicted_class': class_names[np.argmax(predictions)],
+            'confidence': float(np.max(predictions)),
+            'features': extract_features_from_array(image_array)
+        })
+
+    except Exception as e:
+        print("🔥 ERROR:", str(e))
+        return jsonify({'error': str(e)}), 500
