@@ -150,6 +150,8 @@ def predict():
     try:
         load_model_once()
 
+        import tensorflow as tf
+
         if 'image' not in request.files:
             return jsonify({'error': 'No image file'}), 400
 
@@ -162,8 +164,10 @@ def predict():
         input_tensor = np.expand_dims(resized, axis=0)
         input_tensor = preprocess_input(input_tensor)
 
-        # ✅ FINAL FIX: SavedModel inference (NO .predict())
-        predictions = model(input_tensor, training=False)[0].numpy()
+        # ✅ FINAL FIX (for _UserObject model)
+        infer = model.signatures["serving_default"]
+        output = infer(tf.constant(input_tensor))
+        predictions = list(output.values())[0].numpy()[0]
 
         return jsonify({
             'predicted_class': class_names[np.argmax(predictions)],
@@ -174,11 +178,3 @@ def predict():
     except Exception as e:
         print("🔥 ERROR:", str(e))
         return jsonify({'error': str(e)}), 500
-
-
-# =========================
-# RUN (LOCAL ONLY)
-# =========================
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
