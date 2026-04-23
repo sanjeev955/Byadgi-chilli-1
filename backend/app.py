@@ -10,7 +10,7 @@ import cv2
 app = Flask(__name__)
 CORS(app)
 
-MODEL_PATH = '../chilli_model_90.h5'
+MODEL_PATH = 'chilli_model_90.h5'
 print(f"Loading model from {MODEL_PATH}...")
 
 try:
