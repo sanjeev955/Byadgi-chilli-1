@@ -1,3 +1,6 @@
+import os
+os.environ["TF_USE_LEGACY_KERAS"] = "1"   # ✅ FIX compatibility
+
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 import tensorflow as tf
@@ -12,14 +15,18 @@ CORS(app)
 
 MODEL_PATH = 'chilli_model_90.h5'
 
-# ✅ FIX: Lazy loading model
+# ✅ Lazy loading
 model = None
 
 def load_model_once():
     global model
     if model is None:
         print("Loading model...")
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        model = tf.keras.models.load_model(
+            MODEL_PATH,
+            compile=False,
+            safe_mode=False   # ✅ VERY IMPORTANT
+        )
         print("Model loaded successfully!")
 
 # Class labels
@@ -27,7 +34,7 @@ class_names = ['DHQ', 'DLQ', 'KHQ', 'KLQ']
 
 
 # =========================
-# 🎨 COLOR (HSV)
+# 🎨 COLOR
 # =========================
 def get_color_hsv(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -128,7 +135,7 @@ def home():
 # =========================
 @app.route('/predict', methods=['POST'])
 def predict():
-    load_model_once()  # ✅ IMPORTANT
+    load_model_once()   # ✅ LOAD MODEL HERE
 
     if 'image' not in request.files:
         return jsonify({'error': 'No image file'}), 400
