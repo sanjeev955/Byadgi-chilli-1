@@ -162,11 +162,8 @@ def predict():
         input_array = np.expand_dims(resized, axis=0)
         input_array = preprocess_input(input_array)
 
-        print("INPUT SHAPE:", input_array.shape)
-
-        predictions = model.predict(input_array)[0]
-
-        print("PREDICTIONS:", predictions)
+        # ✅ FIX HERE
+        predictions = model(input_array, training=False)[0].numpy()
 
         return jsonify({
             'predicted_class': class_names[np.argmax(predictions)],
@@ -177,3 +174,4 @@ def predict():
     except Exception as e:
         print("🔥 ERROR:", str(e))
         return jsonify({'error': str(e)}), 500
+    
