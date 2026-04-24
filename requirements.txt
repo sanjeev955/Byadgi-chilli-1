@@ -1,8 +1,5 @@
-flask
-flask-cors
 tensorflow==2.12.0
-keras==2.12.0
-numpy==1.23.5
-pillow
+numpy
 opencv-python-headless
-gunicorn
+pillow
+gradio

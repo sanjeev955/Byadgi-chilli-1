@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Upload, Camera, Loader2, AlertCircle, RotateCcw, CheckCircle } from 'lucide-react'
+import { Loader2, AlertCircle, RotateCcw, CheckCircle } from 'lucide-react'
 
 interface GradeResult {
   predicted_class: string
@@ -31,6 +31,9 @@ export function GradingTool() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
+  // =========================
+  // CAMERA
+  // =========================
   const enableCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true })
@@ -57,48 +60,104 @@ export function GradingTool() {
 
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
+
     const ctx = canvas.getContext('2d')
-    if (ctx) {
-      ctx.drawImage(video, 0, 0)
-      canvas.toBlob(blob => {
-        if (blob) {
-          const file = new File([blob], 'photo.jpg', { type: 'image/jpeg' })
-          setSelectedFile(file)
-          setPreviewUrl(URL.createObjectURL(blob))
-          disableCamera()
-          setTab('upload')
-        }
-      })
-    }
+    if (!ctx) return
+
+    ctx.drawImage(video, 0, 0)
+
+    canvas.toBlob(blob => {
+      if (!blob) return
+
+      const file = new File([blob], 'photo.jpg', { type: 'image/jpeg' })
+      setSelectedFile(file)
+      setPreviewUrl(URL.createObjectURL(blob))
+
+      disableCamera()
+      setTab('upload')
+    })
   }
 
+  // =========================
+  // FILE
+  // =========================
   const pickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
+
     setSelectedFile(f)
     setPreviewUrl(URL.createObjectURL(f))
   }
 
+  // =========================
+  // 🔥 FINAL WORKING ANALYZE
+  // =========================
   const doAnalyze = async () => {
     if (!selectedFile) return
-    setAnalyzing(true)
 
-    const fd = new FormData()
-    fd.append('image', selectedFile)
+    setAnalyzing(true)
+    setMessage(null)
 
     try {
-      const res = await fetch('http://localhost:5000/predict', {
-        method: 'POST',
-        body: fd
-      })
-      const data = await res.json()
-      console.log(data) // DEBUG
-      setResult(data)
-    } catch {
-      setMessage("Backend not running")
-    }
+      const reader = new FileReader()
 
-    setAnalyzing(false)
+      reader.onload = async () => {
+        try {
+          const base64 = reader.result as string
+
+          const res = await fetch(
+            "http://127.0.0.1:8000/run/predict", // ✅ FASTAPI
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                data: [base64],
+              }),
+            }
+          )
+
+          const response = await res.json()
+          console.log("FULL RESPONSE:", response)
+
+          // ✅ FIXED STRUCTURE
+          if (!response.data || !response.data[0]) {
+            setMessage("Invalid response")
+            setAnalyzing(false)
+            return
+          }
+
+          const data = response.data[0]
+
+          if (data.error) {
+            setMessage("Backend error: " + data.error)
+            setAnalyzing(false)
+            return
+          }
+
+          setResult({
+            predicted_class: data.predicted_class,
+            confidence: data.confidence,
+            all_predictions: data.all_predictions,
+            features: data.features,
+          })
+
+        } catch (err) {
+          console.error(err)
+          setMessage("Error processing image")
+        } finally {
+          setAnalyzing(false)
+        }
+      }
+
+      reader.readAsDataURL(selectedFile)
+
+    } catch (error) {
+      console.error(error)
+      setMessage("Failed to read image")
+      setAnalyzing(false)
+    }
   }
 
   const resetAll = () => {
@@ -113,11 +172,13 @@ export function GradingTool() {
     return disableCamera
   }, [])
 
+  // =========================
+  // UI
+  // =========================
   return (
     <section className="min-h-screen py-8">
       <div className="max-w-6xl mx-auto px-4">
 
-        {/* Header */}
         <header className="text-center mb-8">
           <h1 className="text-3xl font-bold">Chilli Grader</h1>
           <p className="text-muted-foreground">DHQ / DLQ / KHQ / KLQ</p>
@@ -125,7 +186,7 @@ export function GradingTool() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-          {/* LEFT */}
+          {/* INPUT */}
           <Card>
             <CardHeader>
               <CardTitle>Input</CardTitle>
@@ -181,7 +242,7 @@ export function GradingTool() {
             </CardContent>
           </Card>
 
-          {/* RIGHT */}
+          {/* RESULT */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -193,13 +254,11 @@ export function GradingTool() {
 
               {result ? (
                 <>
-                  {/* Grade */}
                   <div className="p-4 rounded bg-muted mb-4">
                     <p className="text-sm text-muted-foreground">Grade</p>
                     <p className="text-2xl font-bold">{result.predicted_class}</p>
                   </div>
 
-                  {/* Confidence */}
                   <div className="mb-4">
                     <div className="flex justify-between text-sm">
                       Confidence
@@ -208,16 +267,13 @@ export function GradingTool() {
                     <Progress value={result.confidence * 100} />
                   </div>
 
-                  {/* 🔥 FEATURES (NEW) */}
                   {result.features && (
                     <div className="border-t pt-4 mb-4">
-
                       <h3 className="text-sm font-semibold text-muted-foreground mb-3">
                         Chilli Analysis
                       </h3>
 
                       <div className="grid grid-cols-3 gap-3">
-
                         <div className="p-3 rounded bg-muted text-center">
                           <p className="text-xs text-muted-foreground">Color</p>
                           <p className="font-semibold">{result.features.color}</p>
@@ -232,19 +288,16 @@ export function GradingTool() {
                           <p className="text-xs text-muted-foreground">Wrinkle</p>
                           <p className="font-semibold">{result.features.wrinkle}</p>
                         </div>
-
                       </div>
                     </div>
                   )}
 
-                  {/* Probabilities */}
                   {Object.entries(result.all_predictions).map(([k, v]) => (
                     <div key={k} className="flex justify-between text-sm mb-1">
                       <span>{k}</span>
                       <span>{Math.round(v * 100)}%</span>
                     </div>
                   ))}
-
                 </>
               ) : analyzing ? (
                 <div className="text-center py-10">
