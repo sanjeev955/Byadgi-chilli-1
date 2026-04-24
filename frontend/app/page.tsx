@@ -3,7 +3,7 @@
 import { Header } from "@/components/header"
 import { HeroSection } from "@/components/hero-section"
 import { InfoSection } from "@/components/info-section"
-import { GradingTool } from "@/components/grading-tool"
+import GradingTool  from "@/components/grading-tool"
 import { HowItWorks } from "@/components/how-it-works"
 import { AboutSection } from "@/components/about-section"
 import { Footer } from "@/components/footer"

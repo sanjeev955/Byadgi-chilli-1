@@ -4,4 +4,3 @@ h5py==3.8.0
 pillow==9.5.0
 opencv-python-headless==4.8.1.78
 gradio==3.50.2
-

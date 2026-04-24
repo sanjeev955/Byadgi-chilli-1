@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
+import { Client } from "@gradio/client"
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -11,14 +12,53 @@ interface GradeResult {
   predicted_class: string
   confidence: number
   all_predictions: Record<string, number>
-  features?: {
+  features: {
     color: string
     size: string
     wrinkle: string
   }
 }
 
-export function GradingTool() {
+/* =========================
+   🎨 STYLE HELPERS
+========================= */
+
+const getGradeStyle = (grade: string) => {
+  switch (grade) {
+    case "DHQ":
+      return {
+        bg: "bg-green-700 shadow-green-500/40",
+        text: "text-green-300",
+        bar: "bg-green-500"
+      }
+    case "DLQ":
+      return {
+        bg: "bg-yellow-600 shadow-yellow-400/40",
+        text: "text-yellow-200",
+        bar: "bg-yellow-400"
+      }
+    case "KHQ":
+      return {
+        bg: "bg-orange-600 shadow-orange-400/40",
+        text: "text-orange-200",
+        bar: "bg-orange-400"
+      }
+    case "KLQ":
+      return {
+        bg: "bg-red-700 shadow-red-500/40",
+        text: "text-red-300",
+        bar: "bg-red-500"
+      }
+    default:
+      return {
+        bg: "bg-slate-900",
+        text: "text-white",
+        bar: "bg-slate-500"
+      }
+  }
+}
+
+export default function GradingTool() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [tab, setTab] = useState<'upload' | 'camera'>('upload')
@@ -31,9 +71,9 @@ export function GradingTool() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
-  // =========================
-  // CAMERA
-  // =========================
+  /* =========================
+     CAMERA
+  ========================= */
   const enableCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true })
@@ -43,7 +83,7 @@ export function GradingTool() {
         videoRef.current.onloadedmetadata = () => setCameraReady(true)
       }
     } catch {
-      setMessage("Camera access failed")
+      setMessage("Camera access failed.")
     }
   }
 
@@ -61,37 +101,32 @@ export function GradingTool() {
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
 
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.drawImage(video, 0, 0)
+    canvas.getContext('2d')?.drawImage(video, 0, 0)
 
     canvas.toBlob(blob => {
       if (!blob) return
-
       const file = new File([blob], 'photo.jpg', { type: 'image/jpeg' })
       setSelectedFile(file)
       setPreviewUrl(URL.createObjectURL(blob))
-
       disableCamera()
       setTab('upload')
     })
   }
 
-  // =========================
-  // FILE
-  // =========================
+  /* =========================
+     FILE
+  ========================= */
   const pickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
-
     setSelectedFile(f)
     setPreviewUrl(URL.createObjectURL(f))
+    setResult(null)
   }
 
-  // =========================
-  // 🔥 FINAL WORKING ANALYZE
-  // =========================
+  /* =========================
+     ANALYZE
+  ========================= */
   const doAnalyze = async () => {
     if (!selectedFile) return
 
@@ -99,63 +134,24 @@ export function GradingTool() {
     setMessage(null)
 
     try {
-      const reader = new FileReader()
+      const app = await Client.connect("01fe23bca294/chilli-grader-final")
 
-      reader.onload = async () => {
-        try {
-          const base64 = reader.result as string
+      const prediction = await app.predict("/run_model", [
+  selectedFile,
+])
 
-          const res = await fetch(
-            "http://127.0.0.1:8000/run/predict", // ✅ FASTAPI
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                data: [base64],
-              }),
-            }
-          )
+const data = prediction?.data as any
 
-          const response = await res.json()
-          console.log("FULL RESPONSE:", response)
+if (!data || !data[0]) {
+  throw new Error("No data returned")
+}
 
-          // ✅ FIXED STRUCTURE
-          if (!response.data || !response.data[0]) {
-            setMessage("Invalid response")
-            setAnalyzing(false)
-            return
-          }
+setResult(data[0] as GradeResult)
 
-          const data = response.data[0]
-
-          if (data.error) {
-            setMessage("Backend error: " + data.error)
-            setAnalyzing(false)
-            return
-          }
-
-          setResult({
-            predicted_class: data.predicted_class,
-            confidence: data.confidence,
-            all_predictions: data.all_predictions,
-            features: data.features,
-          })
-
-        } catch (err) {
-          console.error(err)
-          setMessage("Error processing image")
-        } finally {
-          setAnalyzing(false)
-        }
-      }
-
-      reader.readAsDataURL(selectedFile)
-
-    } catch (error) {
-      console.error(error)
-      setMessage("Failed to read image")
+    } catch (err: any) {
+      console.error(err)
+      setMessage("Connection error. Check backend.")
+    } finally {
       setAnalyzing(false)
     }
   }
@@ -169,32 +165,32 @@ export function GradingTool() {
   }
 
   useEffect(() => {
-    return disableCamera
+    return () => disableCamera()
   }, [])
 
-  // =========================
-  // UI
-  // =========================
+  /* =========================
+     UI
+  ========================= */
+  const gradeStyle = result ? getGradeStyle(result.predicted_class) : null
+
   return (
-    <section className="min-h-screen py-8">
+    <section className="min-h-screen py-8 bg-slate-50">
       <div className="max-w-6xl mx-auto px-4">
 
         <header className="text-center mb-8">
-          <h1 className="text-3xl font-bold">Chilli Grader</h1>
-          <p className="text-muted-foreground">DHQ / DLQ / KHQ / KLQ</p>
+          <h1 className="text-4xl font-bold">Chilli Grader</h1>
+          <p className="text-slate-500">Neural Network Quality Grading</p>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
           {/* INPUT */}
           <Card>
-            <CardHeader>
-              <CardTitle>Input</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Input</CardTitle></CardHeader>
             <CardContent>
 
               <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
-                <TabsList className="grid grid-cols-2">
+                <TabsList className="grid grid-cols-2 mb-4">
                   <TabsTrigger value="upload">Upload</TabsTrigger>
                   <TabsTrigger value="camera">Camera</TabsTrigger>
                 </TabsList>
@@ -202,9 +198,9 @@ export function GradingTool() {
                 <TabsContent value="upload">
                   <div
                     className="border-dashed border-2 p-6 rounded-xl text-center cursor-pointer"
-                    onClick={() => document.getElementById('file')?.click()}
+                    onClick={() => document.getElementById('file-input')?.click()}
                   >
-                    <input id="file" type="file" className="hidden" onChange={pickFile} />
+                    <input id="file-input" type="file" className="hidden" onChange={pickFile} />
 
                     {previewUrl ? (
                       <img src={previewUrl} className="max-h-60 mx-auto rounded" />
@@ -220,11 +216,12 @@ export function GradingTool() {
                   {cameraReady && <Button onClick={snapPhoto}>Capture</Button>}
                   <canvas ref={canvasRef} className="hidden" />
                 </TabsContent>
+
               </Tabs>
 
               {selectedFile && (
                 <div className="flex gap-2 mt-4">
-                  <Button onClick={doAnalyze} disabled={analyzing} className="flex-1">
+                  <Button onClick={doAnalyze} disabled={analyzing} className="flex-1 bg-red-700 hover:bg-red-800">
                     {analyzing ? <Loader2 className="animate-spin" /> : "Analyze"}
                   </Button>
                   <Button onClick={resetAll} variant="outline">
@@ -243,10 +240,10 @@ export function GradingTool() {
           </Card>
 
           {/* RESULT */}
-          <Card>
+          <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CheckCircle /> Result
+              <CardTitle className="flex gap-2 items-center">
+                <CheckCircle /> Results
               </CardTitle>
             </CardHeader>
 
@@ -254,58 +251,51 @@ export function GradingTool() {
 
               {result ? (
                 <>
-                  <div className="p-4 rounded bg-muted mb-4">
-                    <p className="text-sm text-muted-foreground">Grade</p>
-                    <p className="text-2xl font-bold">{result.predicted_class}</p>
+                  {/* 🔥 GLOW CARD */}
+                  <div className={`p-6 rounded-xl text-white text-center ${gradeStyle?.bg}`}>
+                    <p className="text-xs">GRADE</p>
+                    <p className="text-4xl font-bold">{result.predicted_class}</p>
+                    <p className={`mt-2 ${gradeStyle?.text}`}>
+                      {(result.confidence * 100).toFixed(1)}% Confidence
+                    </p>
                   </div>
 
-                  <div className="mb-4">
-                    <div className="flex justify-between text-sm">
-                      Confidence
-                      <span>{Math.round(result.confidence * 100)}%</span>
-                    </div>
-                    <Progress value={result.confidence * 100} />
+                  {/* FEATURES */}
+                  <div className="grid grid-cols-3 gap-3 mt-4">
+                    {Object.entries(result.features).map(([k, v]) => (
+                      <div key={k} className="bg-slate-100 p-3 rounded text-center">
+                        <p className="text-xs text-gray-500">{k}</p>
+                        <p className="font-semibold">{v}</p>
+                      </div>
+                    ))}
                   </div>
 
-                  {result.features && (
-                    <div className="border-t pt-4 mb-4">
-                      <h3 className="text-sm font-semibold text-muted-foreground mb-3">
-                        Chilli Analysis
-                      </h3>
-
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="p-3 rounded bg-muted text-center">
-                          <p className="text-xs text-muted-foreground">Color</p>
-                          <p className="font-semibold">{result.features.color}</p>
+                  {/* 🔥 ANIMATED BARS */}
+                  <div className="mt-4 space-y-2">
+                    {Object.entries(result.all_predictions).map(([k, v]) => (
+                      <div key={k}>
+                        <div className="flex justify-between text-sm">
+                          <span>{k}</span>
+                          <span>{(v * 100).toFixed(1)}%</span>
                         </div>
 
-                        <div className="p-3 rounded bg-muted text-center">
-                          <p className="text-xs text-muted-foreground">Size</p>
-                          <p className="font-semibold">{result.features.size}</p>
-                        </div>
-
-                        <div className="p-3 rounded bg-muted text-center">
-                          <p className="text-xs text-muted-foreground">Wrinkle</p>
-                          <p className="font-semibold">{result.features.wrinkle}</p>
+                        <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
+                          <div
+                            className={`h-2 ${gradeStyle?.bar} transition-all duration-700`}
+                            style={{ width: `${v * 100}%` }}
+                          />
                         </div>
                       </div>
-                    </div>
-                  )}
+                    ))}
+                  </div>
 
-                  {Object.entries(result.all_predictions).map(([k, v]) => (
-                    <div key={k} className="flex justify-between text-sm mb-1">
-                      <span>{k}</span>
-                      <span>{Math.round(v * 100)}%</span>
-                    </div>
-                  ))}
                 </>
               ) : analyzing ? (
                 <div className="text-center py-10">
-                  <Loader2 className="animate-spin mx-auto mb-2" />
-                  Processing...
+                  <Loader2 className="animate-spin mx-auto" />
                 </div>
               ) : (
-                <div className="text-center py-10 text-muted-foreground">
+                <div className="text-center py-10 text-gray-400">
                   Upload image to analyze
                 </div>
               )}

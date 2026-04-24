@@ -58,13 +58,19 @@ def get_wrinkle(img):
     elif score > 80: return "Medium"
     else: return "Low"
 
+# =========================
+# MODEL FUNCTION
+# =========================
 def run_model(image: Image.Image):
     img = np.array(image.convert("RGB"))
+
     resized = cv2.resize(img, (224, 224))
     input_tensor = np.expand_dims(resized, axis=0) / 255.0
+
     preds = model.predict(input_tensor)[0]
 
     result = {class_names[i]: float(preds[i]) for i in range(len(class_names))}
+
     predicted_class = max(result, key=result.get)
     confidence = float(result[predicted_class])
 
@@ -88,29 +94,43 @@ demo = gr.Interface(
     fn=run_model,
     inputs=gr.Image(type="pil"),
     outputs=gr.JSON(),
-    title="🌶️ Chilli Quality Classifier",
+    title="🌶️ Chilli Quality Classifier"
 )
 
 # =========================
-# FASTAPI WRAPPER
+# FASTAPI API
 # =========================
 api = FastAPI()
 
 @api.post("/run/predict")
 async def predict_api(request: Request):
-    body = await request.json()
-    img_str = body["data"][0]
+    try:
+        body = await request.json()
+        img_str = body["data"][0]
 
-    if "," in img_str:
-        img_str = img_str.split(",")[1]
+        if "," in img_str:
+            img_str = img_str.split(",")[1]
 
-    img_bytes = base64.b64decode(img_str)
-    image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        img_bytes = base64.b64decode(img_str)
+        image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
-    result = run_model(image)
-    return JSONResponse(result)
+        result = run_model(image)
 
-# Mount Gradio
+        # ✅ IMPORTANT FIX
+        return JSONResponse({
+            "data": [result]
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "data": [{
+                "error": str(e)
+            }]
+        })
+
+# =========================
+# MOUNT GRADIO
+# =========================
 api = gr.mount_gradio_app(api, demo, path="/")
 
 # =========================
