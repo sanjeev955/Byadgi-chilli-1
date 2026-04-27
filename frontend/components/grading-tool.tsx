@@ -58,6 +58,17 @@ const getGradeStyle = (grade: string) => {
   }
 }
 
+/* =========================
+   ✅ FULL FORM MAP (ADDED ONLY THIS)
+========================= */
+
+const gradeFullForm: Record<string, string> = {
+  DHQ: "Dabbi High Quality",
+  DLQ: "Dabbi Low Quality",
+  KHQ: "Kaddi High Quality",
+  KLQ: "Kaddi Low Quality"
+}
+
 export default function GradingTool() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -137,16 +148,16 @@ export default function GradingTool() {
       const app = await Client.connect("01fe23bca294/chilli-grader-final")
 
       const prediction = await app.predict("/run_model", [
-  selectedFile,
-])
+        selectedFile,
+      ])
 
-const data = prediction?.data as any
+      const data = prediction?.data as any
 
-if (!data || !data[0]) {
-  throw new Error("No data returned")
-}
+      if (!data || !data[0]) {
+        throw new Error("No data returned")
+      }
 
-setResult(data[0] as GradeResult)
+      setResult(data[0] as GradeResult)
 
     } catch (err: any) {
       console.error(err)
@@ -251,10 +262,16 @@ setResult(data[0] as GradeResult)
 
               {result ? (
                 <>
-                  {/* 🔥 GLOW CARD */}
+                  {/* RESULT CARD */}
                   <div className={`p-6 rounded-xl text-white text-center ${gradeStyle?.bg}`}>
                     <p className="text-xs">GRADE</p>
                     <p className="text-4xl font-bold">{result.predicted_class}</p>
+
+                    {/* ✅ FULL FORM ADDED */}
+                    <p className={`mt-1 ${gradeStyle?.text}`}>
+                      {gradeFullForm[result.predicted_class]}
+                    </p>
+
                     <p className={`mt-2 ${gradeStyle?.text}`}>
                       {(result.confidence * 100).toFixed(1)}% Confidence
                     </p>
@@ -270,12 +287,14 @@ setResult(data[0] as GradeResult)
                     ))}
                   </div>
 
-                  {/* 🔥 ANIMATED BARS */}
+                  {/* PROGRESS BARS */}
                   <div className="mt-4 space-y-2">
                     {Object.entries(result.all_predictions).map(([k, v]) => (
                       <div key={k}>
                         <div className="flex justify-between text-sm">
-                          <span>{k}</span>
+                          <span>
+                            {k} — {gradeFullForm[k]}
+                          </span>
                           <span>{(v * 100).toFixed(1)}%</span>
                         </div>
 
